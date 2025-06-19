@@ -1,85 +1,74 @@
 import struct
 from file import load_xml_file
-from maven_properties import MavenProperties, MavenData, DataType, get_data_type
+from maven_data_type import DataType, get_data_type
+from maven_properties import MavenFieldProperties, MavenProperties
+
+__all__ = ['read_maven_properties_file', 'parse_maven_data']
 
 
-def read_maven_properties_file(filepath: str) -> MavenProperties:
-    properties = load_xml_file(filepath)
+def read_maven_properties_file(filepath: str, namespace='http://pds.nasa.gov/pds4/pds/v1') -> MavenProperties:
+    namespace_mapping = { 'pds': namespace }
+
+    read_element = lambda root, element_name: root.find(f"pds:{element_name}", namespaces=namespace_mapping)
+    read_all = lambda root, element_name: root.findall(f"pds:{element_name}", namespaces=namespace_mapping)
+
+    root = load_xml_file(filepath)
+    file_area_props = read_element(root, 'File_Area_Observational')
     
-    file_area_props = properties[2]
-
     # File:
-    file_props = file_area_props[0]
-    filename = file_props[0].text
-    filesize = int(file_props[2].text)
-    checksum = file_props[3].text
+    file_props = read_element(file_area_props, 'File')
+    filename = read_element(file_props, 'file_name').text
+    filesize = int(read_element(file_props, 'file_size').text)
+    checksum = read_element(file_props, 'md5_checksum').text
 
     # Header:
-    header_props = file_area_props[1]
-    header_offset = int(header_props[1].text)
-    header_length = int(header_props[2].text)
+    header_props = read_element(file_area_props, 'Header')
+    header_offset = int(read_element(header_props, 'offset').text)
+    header_length = int(read_element(header_props, 'object_length').text)
     
-    # Electron Density:
-    electron_density_props = file_area_props[2]
-    electron_density_offset = int(electron_density_props[2].text)
-    electron_density_data_type = get_data_type(electron_density_props[6][0].text)
-    electron_density_unit = electron_density_props[6][1].text
-    electron_density_elements = int(electron_density_props[7][1].text)
-    
-    # TT2000 Time:
-    tt2000_time_props = file_area_props[3]
-    tt2000_time_offset = int(tt2000_time_props[2].text)
-    tt2000_time_data_type = get_data_type(tt2000_time_props[6][0].text)
-    tt2000_time_unit = tt2000_time_props[6][1].text
-    tt2000_time_elements = int(tt2000_time_props[7][1].text)
+    # Fields (Arrays):
+    field_property_list = []
+    for field in read_all(file_area_props, 'Array'):
+        name = read_element(field, 'name').text
+        offset = int(read_element(field, 'offset').text)
+        
+        element_array = read_element(field, 'Element_Array')
+        data_type = get_data_type(read_element(element_array, 'data_type').text)
+        try:
+            unit = read_element(element_array, 'unit').text
+        except Exception:
+            unit = ''
+        
+        axes = int(read_element(field, 'axes').text)
+        if axes <= 0:
+            elements = 0
+        else:
+            # Assumes the main axis is the first axis displayed
+            main_axis = read_all(field, 'Axis_Array')[0]    
+            elements = int(read_element(main_axis, 'elements').text)
 
-    # Unix Time:
-    unix_time_props = file_area_props[4]
-    unix_time_offset = int(unix_time_props[2].text)
-    unix_time_data_type = get_data_type(unix_time_props[6][0].text)
-    unix_time_unit = unix_time_props[6][1].text
-    unix_time_elements = int(unix_time_props[7][1].text)
+        field_properties = MavenFieldProperties(
+            name=name,
+            offset=offset,
+            elements=elements, 
+            data_type=data_type,
+            unit=unit
+        )
+        
+        field_property_list.append(field_properties)
 
-    # Lower uncertainty:
-    lower_uncertainty_props = file_area_props[5]
-    lower_uncertainty_offset = int(lower_uncertainty_props[2].text)
-    lower_uncertainty_data_type = get_data_type(lower_uncertainty_props[6][0].text)
-    lower_uncertainty_unit = lower_uncertainty_props[6][1].text
-    lower_uncertainty_elements = int(lower_uncertainty_props[7][1].text)
-
-    # Upper uncertainty:
-    upper_uncertainty_props = file_area_props[6]
-    upper_uncertainty_offset = int(upper_uncertainty_props[2].text)
-    upper_uncertainty_data_type = get_data_type(upper_uncertainty_props[6][0].text)
-    upper_uncertainty_unit = upper_uncertainty_props[6][1].text
-    upper_uncertainty_elements = int(upper_uncertainty_props[7][1].text)
-
-    # Data quality flag:
-    data_quality_flag_props = file_area_props[7]
-    data_quality_flag_offset = int(data_quality_flag_props[2].text)
-    data_quality_flag_data_type = get_data_type(data_quality_flag_props[6][0].text)
-    data_quality_flag_elements = int(data_quality_flag_props[7][1].text)
-
-    # Instrument information:
-    instrument_information_props = file_area_props[8]
-    instrument_information_offset = int(instrument_information_props[2].text)
-    instrument_information_data_type = get_data_type(instrument_information_props[6][0].text)
-    instrument_information_elements = int(instrument_information_props[7][1].text)
 
     return MavenProperties(
-        filename, checksum, filesize, 
-        header_offset, header_length, 
-        electron_density_offset, electron_density_elements, electron_density_data_type, electron_density_unit,
-        tt2000_time_offset, tt2000_time_elements, tt2000_time_data_type, tt2000_time_unit,
-        unix_time_offset, unix_time_elements, unix_time_data_type, unix_time_unit,
-        lower_uncertainty_offset, lower_uncertainty_elements, lower_uncertainty_data_type, lower_uncertainty_unit,
-        upper_uncertainty_offset, upper_uncertainty_elements, upper_uncertainty_data_type, upper_uncertainty_unit,
-        data_quality_flag_offset, data_quality_flag_elements, data_quality_flag_data_type,
-        instrument_information_offset, instrument_information_elements, instrument_information_data_type
+        filename=filename, 
+        checksum=checksum, 
+        filesize=filesize, 
+        header_offset=header_offset,
+        header_length=header_length,
+        field_properties=field_property_list
     )
 
 
-def get_value_from_type(file, data_type: DataType):
+def __get_value_from_type(file, data_type: DataType):
     if data_type == DataType.SignedMSB8:
         return struct.unpack('b', file.read(1))[0]
 
@@ -90,56 +79,17 @@ def get_value_from_type(file, data_type: DataType):
         return struct.unpack('>d', file.read(8))[0]
 
 
-def parse_maven_data(filepath: str, properties: MavenProperties) -> MavenData:
-    electron_density_values = []
-    tt2000_time_values = []
-    unix_time_values = []
-    lower_uncertainty_values = []
-    upper_uncertainty_values = []
-    data_quality_values = []
-    instrument_information_values = []
+def parse_maven_data(filepath: str, properties: MavenProperties) -> dict:
+    maven_data = {}
 
     with open(filepath, 'rb') as maven_file:
+        for field in properties.field_properties:
+            field_values = []
 
-        # Electron density:
-        maven_file.seek(properties.electron_density_offset)
-        for _ in range(properties.electron_density_elements):
-            electron_density_values.append(get_value_from_type(maven_file, properties.electron_density_data_type))
+            maven_file.seek(field.offset)
+            for _ in range(field.elements):
+                field_values.append(__get_value_from_type(maven_file, field.data_type))
+            
+            maven_data[field.name] = field_values
 
-        # TT2000 Time:
-        maven_file.seek(properties.tt2000_time_offset)
-        for _ in range(properties.tt2000_time_elements):
-            tt2000_time_values.append(get_value_from_type(maven_file, properties.tt2000_time_data_type))
-
-        # Unix Time:
-        maven_file.seek(properties.unix_time_offset)
-        for _ in range(properties.unix_time_elements):
-            unix_time_values.append(get_value_from_type(maven_file, properties.unix_time_data_type))
-    
-        # Unix Time:
-        maven_file.seek(properties.unix_time_offset)
-        for _ in range(properties.unix_time_elements):
-            unix_time_values.append(get_value_from_type(maven_file, properties.unix_time_data_type))
-    
-        # Lower uncertainty:
-        maven_file.seek(properties.lower_uncertainty_offset)
-        for _ in range(properties.lower_uncertainty_elements):
-            lower_uncertainty_values.append(get_value_from_type(maven_file, properties.lower_uncertainty_data_type))
-        
-        # Upper uncertainty:
-        maven_file.seek(properties.upper_uncertainty_offset)
-        for _ in range(properties.upper_uncertainty_elements):
-            upper_uncertainty_values.append(get_value_from_type(maven_file, properties.upper_uncertainty_data_type))
-
-        # Data quality:
-        maven_file.seek(properties.data_quality_flag_offset)
-        for _ in range(properties.data_quality_flag_elements):
-            data_quality_values.append(get_value_from_type(maven_file, properties.data_quality_flag_data_type))
-
-        # Instrument information:
-        maven_file.seek(properties.instrument_information_offset)
-        for _ in range(properties.instrument_information_elements):
-            instrument_information_values.append(get_value_from_type(maven_file, properties.instrument_information_data_type))
-
-    return MavenData(electron_density_values, tt2000_time_values, unix_time_values, lower_uncertainty_values,
-                    upper_uncertainty_values, data_quality_values, instrument_information_values)
+    return maven_data

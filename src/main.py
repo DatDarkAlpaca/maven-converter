@@ -5,11 +5,11 @@ from pathlib import Path
 from maven_reader import read_maven_properties_file, parse_maven_data
 from maven_writer import write_csv_maven
 
-
 ROOT_DIRECTORY = 'data'
 
-def main():
-    for dirpath, _, filenames in os.walk(ROOT_DIRECTORY):
+
+def run_parser_on_directory(directory: str) -> None:
+    for dirpath, _, filenames in os.walk(directory):
         xml_files = [f for f in filenames if f.endswith('.xml')]
 
         for xml_file in xml_files:
@@ -28,7 +28,22 @@ def main():
             maven_data = parse_maven_data(cdf_filepath, maven_properties)
 
             write_csv_maven(result_csv_filepath, maven_data)
-   
+
+
+def run_parser_on_file(xml_filepath: str, cdf_filepath, result_filepath) -> None:
+    maven_properties = read_maven_properties_file(xml_filepath)
+    maven_data = parse_maven_data(cdf_filepath, maven_properties)
+
+    write_csv_maven(result_filepath, maven_data)
+
+
+def main():
+    # 1. Runs the conversion algorithm on every file on directory <directory>
+    run_parser_on_directory(ROOT_DIRECTORY)
+
+    # 2. Runs the conversion on a single file:
+    # run_parser_on_file('example.xml', 'example.cdf', 'example.csv')
+    
 
 if __name__ == '__main__':
     main()
